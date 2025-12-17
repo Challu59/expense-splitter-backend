@@ -1,6 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
+from django.conf import settings
+
 
 # Create your models here.
 
@@ -16,3 +18,25 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.email
+    
+class Group(models.Model):
+    name = models.CharField(max_length=30)
+    currency = models.IntegerField(max_length=8)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_groups')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+
+class GroupMember(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='group_memberships')
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='members')
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['user', 'group']
+        ordering = ['joined_at']
+
+    def __str__(self):
+        return f"{self.user.name} in {self.group.name}"
