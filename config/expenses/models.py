@@ -21,7 +21,7 @@ class User(AbstractUser):
     
 class Group(models.Model):
     name = models.CharField(max_length=30)
-    currency = models.IntegerField(max_length=8)
+    currency = models.CharField(max_length=8, default = 'NPR')
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_groups')
     created_at = models.DateTimeField(auto_now_add=True)
 

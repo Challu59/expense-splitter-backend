@@ -26,9 +26,11 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     username_field = 'email'
 
 class GroupSerializer(serializers.ModelSerializer):
+    members_count = serializers.IntegerField(
+    source='members.count', read_only=True)
     class Meta:
         model = Group
-        fields = ('id', 'name', 'currency', 'created_at')
+        fields = ('id', 'name', 'currency', 'members_count', 'created_at')
 
 class GroupMemberSerializer(serializers.ModelSerializer):
     class Meta:
