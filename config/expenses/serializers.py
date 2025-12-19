@@ -26,9 +26,18 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     username_field = 'email'
 
 class GroupSerializer(serializers.ModelSerializer):
-    model = Group
-    fields = ('id', 'name', 'currency', 'created_at')
+    class Meta:
+        model = Group
+        fields = ('id', 'name', 'currency', 'created_at')
 
 class GroupMemberSerializer(serializers.ModelSerializer):
-    model = GroupMember
-    fields = ('id', 'group', 'joined_at')
+    class Meta:
+        model = GroupMember
+        fields = ('id', 'group', 'joined_at')
+
+class JoinGroupSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GroupMember
+        fields = ('id', 'group', 'user' 'joined_at')
+        read_only_fields = ('id', 'joined_at')
+
