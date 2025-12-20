@@ -48,30 +48,46 @@ class GroupDetailView(generics.RetrieveAPIView):
     serializer_class = GroupSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+
 class GroupInviteView(APIView):
-    permission_classes = permissions.IsAuthenticated
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, id):
         group = get_object_or_404(Group, id=id)
 
-        if(group.created_by)!=(request.user):
+        if group.created_by != request.user:
             return Response(
-                {"detail" : "Only the group creator can invite members"},
-                status = status.HTTP_403_FORBIDDEN       
-                )
-        
-        user_id = request.data.get(user_id)
-        user = get_object_or_404(User, id = id)
-
-        if(GroupMember.filter(group = group,user = user).exists()):
-            return Response(
-                {"detail" : "User is already in the group"},
-                status= status.HTTP_400_BAD_REQUEST,
+                {"detail": "Only the group creator can invite members"},
+                status=status.HTTP_403_FORBIDDEN
             )
-        
-        GroupMember.objects.create(group=group, user=user)
+
+        email = request.data.get("email")
+        if not email:
+            return Response(
+                {"detail": "Email is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "User with this email does not exist"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if GroupMember.objects.filter(group=group, user=user).exists():
+            return Response(
+                {"detail": "User is already a member of this group"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        GroupMember.objects.create(
+            group=group,
+            user=user
+        )
 
         return Response(
-            {"detail": "User added to the group successfully"},
-            status= status.HTTP_201_CREATED
+            {"detail": "User invited successfully"},
+            status=status.HTTP_201_CREATED
         )

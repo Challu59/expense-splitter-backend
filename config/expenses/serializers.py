@@ -40,6 +40,6 @@ class GroupMemberSerializer(serializers.ModelSerializer):
 class JoinGroupSerializer(serializers.ModelSerializer):
     class Meta:
         model = GroupMember
-        fields = ('id', 'group', 'user' 'joined_at')
+        fields = ('id', 'group', 'user', 'joined_at')
         read_only_fields = ('id', 'joined_at')
 
