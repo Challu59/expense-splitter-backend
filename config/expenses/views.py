@@ -27,6 +27,9 @@ class GroupListCreateView(generics.ListCreateAPIView):
         )
         )
     
+    def get_serializer_context(self):
+        return {'request': self.request}
+    
     def perform_create(self, serializer):
         group = serializer.save(created_by = self.request.user)
         GroupMember.objects.create(
@@ -37,6 +40,9 @@ class GroupListCreateView(generics.ListCreateAPIView):
 class JoinGroupView(generics.CreateAPIView):
     serializer_class = JoinGroupSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_serializer_context(self):
+        return {'request': self.request}
     
     def perform_create(self, serializer):
         group_id = self.request.data.get('group_id')

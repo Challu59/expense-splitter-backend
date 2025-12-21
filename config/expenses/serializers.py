@@ -28,9 +28,18 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 class GroupSerializer(serializers.ModelSerializer):
     members_count = serializers.IntegerField(
     source='members.count', read_only=True)
+    created_by = serializers.IntegerField(
+        source = 'created_by.id', read_only = True)
+    is_creator = serializers.SerializerMethodField()
     class Meta:
         model = Group
-        fields = ('id', 'name', 'currency', 'members_count', 'created_at')
+        fields = ('id', 'name', 'currency', 'members_count', 'created_by', 'is_creator', 'created_at')
+    
+    def get_is_creator(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return obj.created_by == request.user
+        return False
 
 class GroupMemberSerializer(serializers.ModelSerializer):
     class Meta:
