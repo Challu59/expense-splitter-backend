@@ -3,9 +3,10 @@ from rest_framework import generics, permissions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
-from .serializers import CustomTokenObtainPairSerializer, UserSerializer, GroupSerializer, GroupMemberSerializer, JoinGroupSerializer
-from .models import User, Group, GroupMember
+from .serializers import CustomTokenObtainPairSerializer, UserSerializer, GroupSerializer, GroupMemberSerializer, JoinGroupSerializer, ExpenseSerializer
+from .models import User, Group, GroupMember, Expense, ExpenseSplit
 from django.shortcuts import get_object_or_404
+from decimal import Decimal
 
 # Create your views here.
 
@@ -97,3 +98,47 @@ class GroupInviteView(APIView):
             {"detail": "User invited successfully"},
             status=status.HTTP_201_CREATED
         )
+
+class AddExpenseView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = ExpenseSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
+
+        group = get_object_or_404(Group, id=request.data.get("group"))
+
+        if not GroupMember.objects.filter(group=group, user=request.user).exists():
+            return Response(
+                {"detail": "You are not a member of this group"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        expense = serializer.save(
+            paid_by=request.user,
+            group=group
+        )
+
+        self.handle_split(expense)
+
+        return Response(
+            ExpenseSerializer(expense).data,
+            status=status.HTTP_201_CREATED
+        )
+
+    def handle_split(self, expense):
+        members = GroupMember.objects.filter(group=expense.group)
+        member_count = members.count()
+
+        if expense.split_type == "equal":
+            share = expense.amount / Decimal(member_count)
+
+            for member in members:
+                ExpenseSplit.objects.create(
+                    expense=expense,
+                    user=member.user,
+                    share_amount=share
+                )
+

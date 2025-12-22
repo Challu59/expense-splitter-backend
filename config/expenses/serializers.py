@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth.password_validation import validate_password
-from .models import User, Group, GroupMember
+from .models import User, Group, GroupMember, Expense
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only = True, required = True, validators = [validate_password])
@@ -51,4 +51,10 @@ class JoinGroupSerializer(serializers.ModelSerializer):
         model = GroupMember
         fields = ('id', 'group', 'user', 'joined_at')
         read_only_fields = ('id', 'joined_at')
+
+class ExpenseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Expense
+        fields = ('id', 'group', 'paid_by', 'amount', 'description', 'split_type', 'created_at')
+        read_only_fields = ('paid_by', 'created_at')
 
