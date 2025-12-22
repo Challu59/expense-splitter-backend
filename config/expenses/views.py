@@ -142,3 +142,14 @@ class AddExpenseView(APIView):
                     share_amount=share
                 )
 
+
+class GroupExpenseListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, id):
+        group = get_object_or_404(Group, id=id)
+
+        expenses = Expense.objects.filter(group=group).order_by("-created_at")
+        serializer = ExpenseSerializer(expenses, many=True)
+
+        return Response(serializer.data)
