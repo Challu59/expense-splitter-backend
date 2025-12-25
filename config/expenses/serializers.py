@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth.password_validation import validate_password
+from django.db import models
 from .models import User, Group, GroupMember, Expense
 
 class UserSerializer(serializers.ModelSerializer):
@@ -53,8 +54,56 @@ class JoinGroupSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'joined_at')
 
 class ExpenseSerializer(serializers.ModelSerializer):
+    paid_by_name = serializers.SerializerMethodField()
+    
     class Meta:
         model = Expense
-        fields = ('id', 'group', 'paid_by', 'amount', 'description', 'split_type', 'created_at')
+        fields = ('id', 'group', 'paid_by', 'paid_by_name', 'amount', 'description', 'split_type', 'created_at')
         read_only_fields = ('paid_by', 'created_at')
+    
+    def get_paid_by_name(self, obj):
+        return obj.paid_by.name if obj.paid_by else None
+
+class GroupMemberNameSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source="user.name")
+
+    class Meta:
+        model = GroupMember
+        fields = ["id", "name"]
+
+class GroupDetailSerializer(serializers.ModelSerializer):
+    members = serializers.SerializerMethodField()
+    members_count = serializers.SerializerMethodField()
+    total_expense = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Group
+        fields = (
+            "id",
+            "name",
+            "currency",
+            "members",
+            "members_count",
+            "total_expense",
+        )
+
+    def get_members(self, obj):
+        try:
+            group_members = obj.members.all()
+            serializer = GroupMemberNameSerializer(group_members, many=True)
+            return serializer.data
+        except Exception as e:
+            print(f"Error in get_members: {e}")
+            return []
+
+    def get_members_count(self, obj):
+        return obj.members.count()
+
+    def get_total_expense(self, obj):
+        return (
+            Expense.objects.filter(group=obj)
+            .aggregate(total=models.Sum("amount"))["total"]
+            or 0
+        )
+
 
