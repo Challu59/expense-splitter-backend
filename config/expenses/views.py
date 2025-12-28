@@ -229,6 +229,6 @@ class GroupDetailAPIView(APIView):
             print("Group detail error:", e)
             print(traceback.format_exc())
             return Response(
-                {"detail": "Error loading group details"},
+                {"detail": f"Error loading group details: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )

@@ -66,10 +66,11 @@ class ExpenseSerializer(serializers.ModelSerializer):
 
 class GroupMemberNameSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source="user.name")
+    user_id = serializers.IntegerField(source="user.id")
 
     class Meta:
         model = GroupMember
-        fields = ["id", "name"]
+        fields = ["id", "name", "user_id"]
 
 class GroupDetailSerializer(serializers.ModelSerializer):
     members = serializers.SerializerMethodField()
@@ -89,21 +90,24 @@ class GroupDetailSerializer(serializers.ModelSerializer):
 
     def get_members(self, obj):
         try:
-            group_members = obj.members.all()
+            group_members = obj.members.select_related('user').all()
             serializer = GroupMemberNameSerializer(group_members, many=True)
             return serializer.data
         except Exception as e:
             print(f"Error in get_members: {e}")
+            import traceback
+            print(traceback.format_exc())
             return []
 
     def get_members_count(self, obj):
         return obj.members.count()
 
     def get_total_expense(self, obj):
-        return (
+        total = (
             Expense.objects.filter(group=obj)
             .aggregate(total=models.Sum("amount"))["total"]
             or 0
         )
+        return float(total) if total else 0
 
 
