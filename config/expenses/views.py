@@ -232,3 +232,93 @@ class GroupDetailAPIView(APIView):
                 {"detail": f"Error loading group details: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+class GroupBalancesView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, id):
+        group = get_object_or_404(Group, id=id)
+
+        if not GroupMember.objects.filter(group=group, user=request.user).exists():
+            return Response(
+                {"detail": "Not a group member"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        members = GroupMember.objects.filter(group=group).select_related("user")
+        net = {member.user_id: Decimal("0.00") for member in members}
+        users = {member.user_id: member.user for member in members}
+
+        splits = ExpenseSplit.objects.filter(expense__group=group).select_related(
+            "expense", "user"
+        )
+        for split in splits:
+            payer_id = split.expense.paid_by_id
+            debtor_id = split.user_id
+            amount = split.share_amount
+
+            net[payer_id] = net.get(payer_id, Decimal("0.00")) + amount
+            net[debtor_id] = net.get(debtor_id, Decimal("0.00")) - amount
+
+        settlements = self._minimize_settlements(net)
+
+        balances = []
+        for user_id, balance in net.items():
+            balances.append(
+                {
+                    "user_id": user_id,
+                    "name": users[user_id].name,
+                    "email": users[user_id].email,
+                    "net_balance": float(balance.quantize(Decimal("0.01"))),
+                }
+            )
+
+        return Response(
+            {
+                "group_id": group.id,
+                "group_name": group.name,
+                "currency": group.currency,
+                "balances": balances,
+                "settlements": settlements,
+            }
+        )
+
+    def _minimize_settlements(self, net):
+        creditors = []
+        debtors = []
+
+        for user_id, balance in net.items():
+            rounded = balance.quantize(Decimal("0.01"))
+            if rounded > 0:
+                creditors.append([user_id, rounded])
+            elif rounded < 0:
+                debtors.append([user_id, -rounded])
+
+        i = 0
+        j = 0
+        optimized = []
+
+        while i < len(debtors) and j < len(creditors):
+            debtor_id, owes = debtors[i]
+            creditor_id, gets = creditors[j]
+            amount = min(owes, gets).quantize(Decimal("0.01"))
+
+            if amount > 0:
+                optimized.append(
+                    {
+                        "from_user": debtor_id,
+                        "to_user": creditor_id,
+                        "amount": float(amount),
+                    }
+                )
+
+            debtors[i][1] = (owes - amount).quantize(Decimal("0.01"))
+            creditors[j][1] = (gets - amount).quantize(Decimal("0.01"))
+
+            if debtors[i][1] == 0:
+                i += 1
+            if creditors[j][1] == 0:
+                j += 1
+
+        return optimized

@@ -58,16 +58,8 @@ class Expense(models.Model):
         return f"{self.description} - {self.amount}"
     
 class ExpenseSplit(models.Model):
-    expense = models.ForeignKey(
-        Expense,
-        on_delete=models.CASCADE,
-        related_name="splits"
-    )
-    user = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
-        related_name="expense_splits"
-    )
+    expense = models.ForeignKey(Expense, on_delete=models.CASCADE, related_name="splits")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="expense_splits")
     share_amount = models.DecimalField(max_digits=10, decimal_places=2)
 
     def __str__(self):
