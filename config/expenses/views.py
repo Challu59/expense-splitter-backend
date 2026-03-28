@@ -12,7 +12,7 @@ from .serializers import (
     ExpenseSerializer,
     GroupDetailSerializer,
 )
-from .models import User, Group, GroupMember, Expense, ExpenseSplit
+from .models import User, Group, GroupMember, Expense, ExpenseSplit, ExpensePayment
 from decimal import Decimal
 import traceback
 
@@ -126,8 +126,10 @@ class AddExpenseView(APIView):
         )
 
         splits = request.data.get("splits", [])
+        payments_raw = request.data.get("payments")
 
         try:
+            self._save_payments(request, group, expense, payments_raw)
             self.handle_split(expense, splits)
         except ValueError as e:
             expense.delete()  # rollback expense
@@ -136,10 +138,60 @@ class AddExpenseView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        expense = Expense.objects.prefetch_related("payments__user").get(pk=expense.pk)
         return Response(
             ExpenseSerializer(expense).data,
             status=status.HTTP_201_CREATED,
         )
+
+    def _save_payments(self, request, group, expense, payments_raw):
+        member_ids = set(
+            GroupMember.objects.filter(group=group).values_list("user_id", flat=True)
+        )
+        target = expense.amount.quantize(Decimal("0.01"))
+
+        ExpensePayment.objects.filter(expense=expense).delete()
+
+        if payments_raw is None or payments_raw == []:
+            ExpensePayment.objects.create(
+                expense=expense,
+                user=request.user,
+                amount=target,
+            )
+            return
+
+        merged = {}
+        for p in payments_raw:
+            uid = p.get("user")
+            if uid is None:
+                uid = p.get("user_id")
+            if uid is None:
+                raise ValueError("Each payment requires a user id")
+            uid = int(uid)
+            if uid not in member_ids:
+                raise ValueError("All payers must be members of this group")
+
+            raw_amt = p.get("amount")
+            if raw_amt is None:
+                raw_amt = p.get("value")
+            if raw_amt is None:
+                raise ValueError("Each payment requires an amount")
+
+            amt = Decimal(str(raw_amt)).quantize(Decimal("0.01"))
+            if amt <= 0:
+                raise ValueError("Payment amounts must be positive")
+            merged[uid] = merged.get(uid, Decimal("0.00")) + amt
+
+        total = sum(merged.values(), Decimal("0.00")).quantize(Decimal("0.01"))
+        if total != target:
+            raise ValueError("Sum of payments must equal the expense total")
+
+        for uid, amt in merged.items():
+            ExpensePayment.objects.create(
+                expense=expense,
+                user_id=uid,
+                amount=amt.quantize(Decimal("0.01")),
+            )
 
     def handle_split(self, expense, splits):
         members = GroupMember.objects.filter(group=expense.group)
@@ -204,7 +256,11 @@ class GroupExpenseListView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        expenses = Expense.objects.filter(group=group).order_by("-created_at")
+        expenses = (
+            Expense.objects.filter(group=group)
+            .order_by("-created_at")
+            .prefetch_related("payments__user")
+        )
         serializer = ExpenseSerializer(expenses, many=True)
         return Response(serializer.data)
 
@@ -250,16 +306,17 @@ class GroupBalancesView(APIView):
         net = {member.user_id: Decimal("0.00") for member in members}
         users = {member.user_id: member.user for member in members}
 
-        splits = ExpenseSplit.objects.filter(expense__group=group).select_related(
-            "expense", "user"
+        payments = ExpensePayment.objects.filter(expense__group=group).select_related(
+            "user"
         )
-        for split in splits:
-            payer_id = split.expense.paid_by_id
-            debtor_id = split.user_id
-            amount = split.share_amount
+        for payment in payments:
+            uid = payment.user_id
+            net[uid] = net.get(uid, Decimal("0.00")) + payment.amount
 
-            net[payer_id] = net.get(payer_id, Decimal("0.00")) + amount
-            net[debtor_id] = net.get(debtor_id, Decimal("0.00")) - amount
+        splits = ExpenseSplit.objects.filter(expense__group=group).select_related("user")
+        for split in splits:
+            uid = split.user_id
+            net[uid] = net.get(uid, Decimal("0.00")) - split.share_amount
 
         settlements = self._minimize_settlements(net)
 

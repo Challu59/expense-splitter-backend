@@ -2,7 +2,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth.password_validation import validate_password
 from django.db import models
-from .models import User, Group, GroupMember, Expense
+from .models import User, Group, GroupMember, Expense, ExpensePayment
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only = True, required = True, validators = [validate_password])
@@ -53,15 +53,39 @@ class JoinGroupSerializer(serializers.ModelSerializer):
         fields = ('id', 'group', 'user', 'joined_at')
         read_only_fields = ('id', 'joined_at')
 
+class ExpensePaymentSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source="user.name", read_only=True)
+
+    class Meta:
+        model = ExpensePayment
+        fields = ("user", "user_name", "amount")
+
+
 class ExpenseSerializer(serializers.ModelSerializer):
     paid_by_name = serializers.SerializerMethodField()
-    
+    payments = ExpensePaymentSerializer(many=True, read_only=True)
+
     class Meta:
         model = Expense
-        fields = ('id', 'group', 'paid_by', 'paid_by_name', 'amount', 'description', 'split_type', 'created_at')
-        read_only_fields = ('paid_by', 'created_at')
-    
+        fields = (
+            "id",
+            "group",
+            "paid_by",
+            "paid_by_name",
+            "payments",
+            "amount",
+            "description",
+            "split_type",
+            "created_at",
+        )
+        read_only_fields = ("paid_by", "created_at")
+
     def get_paid_by_name(self, obj):
+        payment_users = list(obj.payments.all())
+        if len(payment_users) == 1:
+            return payment_users[0].user.name
+        if len(payment_users) > 1:
+            return "Multiple payers"
         return obj.paid_by.name if obj.paid_by else None
 
 class GroupMemberNameSerializer(serializers.ModelSerializer):

@@ -64,3 +64,17 @@ class ExpenseSplit(models.Model):
 
     def __str__(self):
         return f"{self.user.email} owes {self.share_amount}"
+
+
+class ExpensePayment(models.Model):
+
+    expense = models.ForeignKey(Expense, on_delete=models.CASCADE, related_name="payments")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="expense_payments")
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+
+    class Meta:
+        unique_together = ["expense", "user"]
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"{self.user.email} paid {self.amount}"
