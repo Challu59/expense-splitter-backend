@@ -2,7 +2,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth.password_validation import validate_password
 from django.db import models
-from .models import User, Group, GroupMember, Expense, ExpensePayment
+from .models import User, Group, GroupMember, Expense, ExpensePayment, Settlement
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only = True, required = True, validators = [validate_password])
@@ -133,5 +133,24 @@ class GroupDetailSerializer(serializers.ModelSerializer):
             or 0
         )
         return float(total) if total else 0
+
+
+class SettlementSerializer(serializers.ModelSerializer):
+    from_user_name = serializers.CharField(source="from_user.name", read_only=True)
+    to_user_name = serializers.CharField(source="to_user.name", read_only=True)
+
+    class Meta:
+        model = Settlement
+        fields = (
+            "id",
+            "group",
+            "from_user",
+            "from_user_name",
+            "to_user",
+            "to_user_name",
+            "amount",
+            "date",
+        )
+        read_only_fields = ("id", "from_user", "date")
 
 

@@ -11,8 +11,9 @@ from .serializers import (
     JoinGroupSerializer,
     ExpenseSerializer,
     GroupDetailSerializer,
+    SettlementSerializer,
 )
-from .models import User, Group, GroupMember, Expense, ExpenseSplit, ExpensePayment
+from .models import User, Group, GroupMember, Expense, ExpenseSplit, ExpensePayment, Settlement
 from decimal import Decimal
 import traceback
 
@@ -303,22 +304,12 @@ class GroupBalancesView(APIView):
             )
 
         members = GroupMember.objects.filter(group=group).select_related("user")
-        net = {member.user_id: Decimal("0.00") for member in members}
-        users = {member.user_id: member.user for member in members}
-
-        payments = ExpensePayment.objects.filter(expense__group=group).select_related(
-            "user"
-        )
-        for payment in payments:
-            uid = payment.user_id
-            net[uid] = net.get(uid, Decimal("0.00")) + payment.amount
-
-        splits = ExpenseSplit.objects.filter(expense__group=group).select_related("user")
-        for split in splits:
-            uid = split.user_id
-            net[uid] = net.get(uid, Decimal("0.00")) - split.share_amount
+        net, users = self._compute_group_net(group, members)
 
         settlements = self._minimize_settlements(net)
+        settlement_history = Settlement.objects.filter(group=group).select_related(
+            "from_user", "to_user"
+        )
 
         balances = []
         for user_id, balance in net.items():
@@ -338,8 +329,38 @@ class GroupBalancesView(APIView):
                 "currency": group.currency,
                 "balances": balances,
                 "settlements": settlements,
+                "settlement_history": SettlementSerializer(settlement_history, many=True).data,
             }
         )
+
+    def _compute_group_net(self, group, members=None):
+        if members is None:
+            members = GroupMember.objects.filter(group=group).select_related("user")
+
+        net = {member.user_id: Decimal("0.00") for member in members}
+        users = {member.user_id: member.user for member in members}
+
+        payments = ExpensePayment.objects.filter(expense__group=group).select_related("user")
+        for payment in payments:
+            uid = payment.user_id
+            net[uid] = net.get(uid, Decimal("0.00")) + payment.amount
+
+        splits = ExpenseSplit.objects.filter(expense__group=group).select_related("user")
+        for split in splits:
+            uid = split.user_id
+            net[uid] = net.get(uid, Decimal("0.00")) - split.share_amount
+
+        
+        paid_settlements = Settlement.objects.filter(group=group)
+        for settlement in paid_settlements:
+            net[settlement.from_user_id] = (
+                net.get(settlement.from_user_id, Decimal("0.00")) + settlement.amount
+            )
+            net[settlement.to_user_id] = (
+                net.get(settlement.to_user_id, Decimal("0.00")) - settlement.amount
+            )
+
+        return net, users
 
     def _minimize_settlements(self, net):
         creditors = []
@@ -379,3 +400,97 @@ class GroupBalancesView(APIView):
                 j += 1
 
         return optimized
+
+
+class SettlementCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        group_id = request.data.get("group")
+        to_user_id = request.data.get("to_user")
+        amount_raw = request.data.get("amount")
+
+        if not group_id or not to_user_id or amount_raw is None:
+            return Response(
+                {"detail": "group, to_user and amount are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        group = get_object_or_404(Group, id=group_id)
+        if not GroupMember.objects.filter(group=group, user=request.user).exists():
+            return Response(
+                {"detail": "Not a group member"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not GroupMember.objects.filter(group=group, user_id=to_user_id).exists():
+            return Response(
+                {"detail": "Recipient must be in the same group"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if int(to_user_id) == request.user.id:
+            return Response(
+                {"detail": "You cannot settle with yourself"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            amount = Decimal(str(amount_raw)).quantize(Decimal("0.01"))
+        except Exception:
+            return Response(
+                {"detail": "Invalid settlement amount"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if amount <= 0:
+            return Response(
+                {"detail": "Settlement amount must be positive"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        net, _ = GroupBalancesView()._compute_group_net(group)
+        payer_balance = net.get(request.user.id, Decimal("0.00")).quantize(Decimal("0.01"))
+        receiver_balance = net.get(int(to_user_id), Decimal("0.00")).quantize(Decimal("0.01"))
+
+        if payer_balance >= 0:
+            return Response(
+                {"detail": "You do not owe money in this group"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if receiver_balance <= 0:
+            return Response(
+                {"detail": "Selected user is not owed money"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        max_allowed = min(-payer_balance, receiver_balance)
+        if amount > max_allowed:
+            return Response(
+                {
+                    "detail": f"Amount exceeds pending settlement. Max allowed: {max_allowed}"
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        settlement = Settlement.objects.create(
+            group=group,
+            from_user=request.user,
+            to_user_id=to_user_id,
+            amount=amount,
+        )
+        return Response(SettlementSerializer(settlement).data, status=status.HTTP_201_CREATED)
+
+
+class GroupSettlementListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, id):
+        group = get_object_or_404(Group, id=id)
+        if not GroupMember.objects.filter(group=group, user=request.user).exists():
+            return Response(
+                {"detail": "Not a group member"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        queryset = Settlement.objects.filter(group=group).select_related("from_user", "to_user")
+        return Response(SettlementSerializer(queryset, many=True).data)

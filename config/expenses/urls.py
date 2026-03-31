@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import CustomTokenObtainPairView, RegisterView, GroupListCreateView, GroupDetailView, GroupInviteView, AddExpenseView, GroupExpenseListView, GroupDetailAPIView, GroupBalancesView
+from .views import CustomTokenObtainPairView, RegisterView, GroupListCreateView, GroupDetailView, GroupInviteView, AddExpenseView, GroupExpenseListView, GroupDetailAPIView, GroupBalancesView, SettlementCreateView, GroupSettlementListView
 
 urlpatterns = [
     path('auth/login/', CustomTokenObtainPairView.as_view(), name= 'login'),
@@ -11,4 +11,6 @@ urlpatterns = [
     path("groups/<int:id>/expenses/", GroupExpenseListView.as_view()),
     path("groups/<int:id>/detail/", GroupDetailAPIView.as_view()),
     path("groups/<int:id>/balances/", GroupBalancesView.as_view()),
+    path("settlements/", SettlementCreateView.as_view()),
+    path("groups/<int:id>/settlements/", GroupSettlementListView.as_view()),
 ]
