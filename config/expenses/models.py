@@ -4,8 +4,6 @@ from django.utils import timezone
 from django.conf import settings
 
 
-# Create your models here.
-
 
 class User(AbstractUser):
     email= models.EmailField(unique=True)
