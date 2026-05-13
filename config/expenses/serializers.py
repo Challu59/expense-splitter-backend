@@ -149,8 +149,9 @@ class SettlementSerializer(serializers.ModelSerializer):
             "to_user",
             "to_user_name",
             "amount",
+            "note",
             "date",
         )
-        read_only_fields = ("id", "from_user", "date")
+        read_only_fields = ("id", "from_user", "date", "from_user_name", "to_user_name")
 
 

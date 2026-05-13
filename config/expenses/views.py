@@ -402,83 +402,111 @@ class GroupBalancesView(APIView):
         return optimized
 
 
+def create_settlement_response(request, group, to_user_id, amount_raw, note_raw=None):
+    
+    if not GroupMember.objects.filter(group=group, user=request.user).exists():
+        return Response(
+            {"detail": "Not a group member"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    if to_user_id is None or amount_raw is None:
+        return Response(
+            {"detail": "to_user and amount are required"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        to_user_id = int(to_user_id)
+    except (TypeError, ValueError):
+        return Response(
+            {"detail": "to_user must be a valid user id"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not GroupMember.objects.filter(group=group, user_id=to_user_id).exists():
+        return Response(
+            {"detail": "Recipient must be in the same group"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if to_user_id == request.user.id:
+        return Response(
+            {"detail": "You cannot settle with yourself"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        amount = Decimal(str(amount_raw)).quantize(Decimal("0.01"))
+    except Exception:
+        return Response(
+            {"detail": "Invalid settlement amount"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if amount <= 0:
+        return Response(
+            {"detail": "Settlement amount must be positive"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    note = ""
+    if note_raw is not None:
+        note = str(note_raw).strip()[:255]
+
+    net, _ = GroupBalancesView()._compute_group_net(group)
+    payer_balance = net.get(request.user.id, Decimal("0.00")).quantize(Decimal("0.01"))
+    receiver_balance = net.get(to_user_id, Decimal("0.00")).quantize(Decimal("0.01"))
+
+    if payer_balance >= 0:
+        return Response(
+            {"detail": "You do not owe money in this group"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if receiver_balance <= 0:
+        return Response(
+            {"detail": "Selected user is not owed money"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    max_allowed = min(-payer_balance, receiver_balance).quantize(Decimal("0.01"))
+    if amount > max_allowed:
+        return Response(
+            {
+                "detail": f"Amount exceeds pending settlement. Max allowed: {max_allowed}"
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    settlement = Settlement.objects.create(
+        group=group,
+        from_user=request.user,
+        to_user_id=to_user_id,
+        amount=amount,
+        note=note,
+    )
+    return Response(SettlementSerializer(settlement).data, status=status.HTTP_201_CREATED)
+
+
 class SettlementCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         group_id = request.data.get("group")
-        to_user_id = request.data.get("to_user")
-        amount_raw = request.data.get("amount")
-
-        if not group_id or not to_user_id or amount_raw is None:
+        if group_id is None:
             return Response(
                 {"detail": "group, to_user and amount are required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         group = get_object_or_404(Group, id=group_id)
-        if not GroupMember.objects.filter(group=group, user=request.user).exists():
-            return Response(
-                {"detail": "Not a group member"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        if not GroupMember.objects.filter(group=group, user_id=to_user_id).exists():
-            return Response(
-                {"detail": "Recipient must be in the same group"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if int(to_user_id) == request.user.id:
-            return Response(
-                {"detail": "You cannot settle with yourself"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            amount = Decimal(str(amount_raw)).quantize(Decimal("0.01"))
-        except Exception:
-            return Response(
-                {"detail": "Invalid settlement amount"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if amount <= 0:
-            return Response(
-                {"detail": "Settlement amount must be positive"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        net, _ = GroupBalancesView()._compute_group_net(group)
-        payer_balance = net.get(request.user.id, Decimal("0.00")).quantize(Decimal("0.01"))
-        receiver_balance = net.get(int(to_user_id), Decimal("0.00")).quantize(Decimal("0.01"))
-
-        if payer_balance >= 0:
-            return Response(
-                {"detail": "You do not owe money in this group"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if receiver_balance <= 0:
-            return Response(
-                {"detail": "Selected user is not owed money"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        max_allowed = min(-payer_balance, receiver_balance)
-        if amount > max_allowed:
-            return Response(
-                {
-                    "detail": f"Amount exceeds pending settlement. Max allowed: {max_allowed}"
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        settlement = Settlement.objects.create(
-            group=group,
-            from_user=request.user,
-            to_user_id=to_user_id,
-            amount=amount,
+        return create_settlement_response(
+            request,
+            group,
+            request.data.get("to_user"),
+            request.data.get("amount"),
+            request.data.get("note"),
         )
-        return Response(SettlementSerializer(settlement).data, status=status.HTTP_201_CREATED)
 
 
 class GroupSettlementListView(APIView):
@@ -494,3 +522,13 @@ class GroupSettlementListView(APIView):
 
         queryset = Settlement.objects.filter(group=group).select_related("from_user", "to_user")
         return Response(SettlementSerializer(queryset, many=True).data)
+
+    def post(self, request, id):
+        group = get_object_or_404(Group, id=id)
+        return create_settlement_response(
+            request,
+            group,
+            request.data.get("to_user"),
+            request.data.get("amount"),
+            request.data.get("note"),
+        )
