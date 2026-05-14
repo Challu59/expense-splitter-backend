@@ -24,7 +24,13 @@ class UserSerializer(serializers.ModelSerializer):
         return user
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
-    username_field = 'email'
+    username_field = "email"
+
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        data["user_id"] = self.user.id
+        return data
+
 
 class GroupSerializer(serializers.ModelSerializer):
     members_count = serializers.IntegerField(
