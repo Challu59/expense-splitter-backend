@@ -56,12 +56,6 @@ class JoinGroupView(generics.CreateAPIView):
         serializer.save(user=self.request.user, group=group)
 
 
-class GroupDetailView(generics.RetrieveAPIView):
-    queryset = Group.objects.all()
-    serializer_class = GroupSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-
 class GroupInviteView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -488,40 +482,8 @@ def create_settlement_response(request, group, to_user_id, amount_raw, note_raw=
     return Response(SettlementSerializer(settlement).data, status=status.HTTP_201_CREATED)
 
 
-class SettlementCreateView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request):
-        group_id = request.data.get("group")
-        if group_id is None:
-            return Response(
-                {"detail": "group, to_user and amount are required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        group = get_object_or_404(Group, id=group_id)
-        return create_settlement_response(
-            request,
-            group,
-            request.data.get("to_user"),
-            request.data.get("amount"),
-            request.data.get("note"),
-        )
-
-
 class GroupSettlementListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request, id):
-        group = get_object_or_404(Group, id=id)
-        if not GroupMember.objects.filter(group=group, user=request.user).exists():
-            return Response(
-                {"detail": "Not a group member"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        queryset = Settlement.objects.filter(group=group).select_related("from_user", "to_user")
-        return Response(SettlementSerializer(queryset, many=True).data)
 
     def post(self, request, id):
         group = get_object_or_404(Group, id=id)
